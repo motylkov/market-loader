@@ -1,0 +1,36 @@
+# Бинарные файлы
+*.exe
+*.dll
+*.so
+
+# Логи
+*.log
+
+# Конфигурационные файлы с секретами
+config.yaml
+
+# Временные файлы
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+
+# IDE файлы
+.vscode/
+
+# Go файлы
+*.test
+*.out
+go.work
+
+# Результаты тестирования
+results/
+reports/
+*.csv
+
+# Кэш
+.cache/
+tmp/ 
+
+# Скомпилированные файлы
+bin/
