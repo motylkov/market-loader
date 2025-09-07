@@ -35,7 +35,7 @@
 >WHERE ticker IN ('SBER', 'GAZP', 'LKOH');
 >```
 >
->Подробные примеры в файле `scripts/enable_instruments.sql`
+>Подробные примеры в файле `scripts/instruments.sql`
 >
 >При повторном запуске скрипт добавит все отсутствующие инструменты (с enabled = false).
 
@@ -256,7 +256,7 @@ WHERE trading_status = 'SECURITY_TRADING_STATUS_NORMAL_TRADING'
 GROUP BY instrument_type;
 ```
 
-Подробные примеры в файле `scripts/enable_instruments.sql`
+Подробные примеры в файле `scripts/instruments.sql`
 
 ### Автоматизация
 
@@ -364,3 +364,5 @@ This project is a tool for downloading market data from the T-Investment API and
 ## Лицензия
 
 This project is licensed under the Mozilla Public License 2.0 (MPL-2.0) - see the [LICENSE](LICENSE) file for details.
+
+Copyright (C) 2025 Maxim Motylkov
