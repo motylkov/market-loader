@@ -115,7 +115,7 @@ CREATE USER t_invest_user WITH PASSWORD 'your_secure_password';
 
 ```sql
 -- Создание базы данных с владельцем
-CREATE DATABASE t_invest_data OWNER t_invest_user;
+CREATE DATABASE invest OWNER t_invest_user;
 ```
 
 #### 3.3. Настройка прав доступа
@@ -124,13 +124,13 @@ CREATE DATABASE t_invest_data OWNER t_invest_user;
 
 ```sql
 -- Предоставление прав на подключение к базе данных
-GRANT CONNECT ON DATABASE t_invest_data TO t_invest_user;
+GRANT CONNECT ON DATABASE invest TO t_invest_user;
 
 -- Предоставление всех прав на базу данных
-GRANT ALL PRIVILEGES ON DATABASE t_invest_data TO t_invest_user;
+GRANT ALL PRIVILEGES ON DATABASE invest TO t_invest_user;
 
 -- Подключение к созданной базе данных
-\c t_invest_data
+\c invest
 
 -- Предоставление прав на схему public
 GRANT ALL PRIVILEGES ON SCHEMA public TO t_invest_user;
