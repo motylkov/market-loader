@@ -25,25 +25,31 @@ func LoadAllInstruments(
 	dbpool *pgxpool.Pool,
 	logger *logrus.Logger,
 ) error {
+	// Получаем или создаем источник данных T-Invest
+	dataSourceID, err := data.GetOrCreateTInvestDataSource(ctx, dbpool)
+	if err != nil {
+		return fmt.Errorf("ошибка получения источника данных T-Invest: %w", err)
+	}
+
 	// Загружаем акции
 	logger.Debug("Загружаем акции...")
-	if err := data.LoadInstrumentsByType(ctx, client, dbpool, "share", logger); err != nil {
+	if err := data.LoadInstrumentsByType(ctx, client, dbpool, "share", dataSourceID, logger); err != nil {
 		return fmt.Errorf("ошибка загрузки share: %w", err)
 	}
 
 	// Загружаем облигации
 	logger.Debug("Загружаем облигации...")
-	if err := data.LoadInstrumentsByType(ctx, client, dbpool, "bond", logger); err != nil {
+	if err := data.LoadInstrumentsByType(ctx, client, dbpool, "bond", dataSourceID, logger); err != nil {
 		return fmt.Errorf("ошибка загрузки bond: %w", err)
 	}
 
 	// Загружаем ETF
 	logger.Debug("Загружаем ETF...")
-	if err := data.LoadInstrumentsByType(ctx, client, dbpool, "etf", logger); err != nil {
+	if err := data.LoadInstrumentsByType(ctx, client, dbpool, "etf", dataSourceID, logger); err != nil {
 		return fmt.Errorf("ошибка загрузки etf: %w", err)
 	}
 
-	logger.Info("Все инструменты (share, bond, etf) загружены")
+	logger.Info("Все инструменты (share, bond, etf) загружены с расширенными данными")
 
 	return nil
 }

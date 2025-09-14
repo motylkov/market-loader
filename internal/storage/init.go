@@ -16,6 +16,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+const newView = 1
+
 // CreatePartition создает партицию
 func CreatePartition(dbpool *pgxpool.Pool, t time.Time) error {
 	// Начало месяца
@@ -61,6 +63,20 @@ func CreateYearPartitions(dbpool *pgxpool.Pool, year int) error {
 
 // InitDatabase инициализирует базу данных, создавая необходимые таблицы
 func InitDatabase(dbpool *pgxpool.Pool) error {
+	// Создаем таблицу data_sources
+	dataSourcesTable := `
+		CREATE TABLE IF NOT EXISTS data_sources (
+			id serial4 NOT NULL,
+			"name" varchar(50) NOT NULL,
+			description text NULL,
+			base_url varchar(200) NULL,
+			created_at timestamp DEFAULT now() NULL,
+			updated_at timestamp DEFAULT now() NULL,
+			CONSTRAINT data_sources_name_key UNIQUE (name),
+			CONSTRAINT data_sources_pkey PRIMARY KEY (id)
+		);
+	`
+
 	// Создаем таблицу instruments
 	instrumentsTable := `
 		CREATE TABLE IF NOT EXISTS instruments (
@@ -72,11 +88,21 @@ func InitDatabase(dbpool *pgxpool.Pool) error {
 			lot_size int4 NOT NULL,
 			min_price_increment numeric(20, 9) NOT NULL,
 			trading_status varchar(40) NOT NULL,
-			enabled bool DEFAULT false NOT NULL,
+			isin varchar(12) NULL,
+			short_enabled_flag boolean DEFAULT false NOT NULL,
+			ipo_date date NULL,
+			issue_size bigint NULL,
+			sector varchar(100) NULL,
+			real_exchange varchar(50) NULL,
+			first_1min_candle_date timestamp NULL,
+			first_1day_candle_date timestamp NULL,
+			data_source_id int4 NULL,
 			created_at timestamp DEFAULT now() NOT NULL,
 			updated_at timestamp DEFAULT now() NOT NULL,
 			last_loaded_time timestamp NULL,
-			CONSTRAINT instruments_pkey PRIMARY KEY (figi)
+			enabled bool DEFAULT false NOT NULL,
+			CONSTRAINT instruments_pkey PRIMARY KEY (figi),
+			CONSTRAINT instruments_data_source_id_fkey FOREIGN KEY (data_source_id) REFERENCES data_sources(id)
 		);
 	`
 
@@ -114,7 +140,8 @@ func InitDatabase(dbpool *pgxpool.Pool) error {
 	`
 
 	// Выполняем создание таблиц
-	queries := []string{instrumentsTable, candlesTable, dividendsTable}
+	// data_sources должна быть создана первой
+	queries := []string{dataSourcesTable, instrumentsTable, candlesTable, dividendsTable}
 	for _, query := range queries {
 		_, err := dbpool.Exec(context.Background(), query)
 		if err != nil {
@@ -129,11 +156,23 @@ func InitDatabase(dbpool *pgxpool.Pool) error {
 func CreateIndexesAndConstraints(dbpool *pgxpool.Pool) error {
 	// Создаем индексы для оптимизации запросов
 	indexes := []string{
+		// Индексы для candles
 		`CREATE INDEX IF NOT EXISTS idx_candles_figi_interval ON candles(figi, interval_type);`,
 		`CREATE INDEX IF NOT EXISTS idx_candles_time ON candles(time);`,
+
+		// Индексы для instruments
 		`CREATE INDEX IF NOT EXISTS idx_instruments_ticker ON instruments(ticker);`,
 		`CREATE INDEX IF NOT EXISTS idx_instruments_type ON instruments(instrument_type);`,
 		`CREATE INDEX IF NOT EXISTS idx_instruments_enabled ON instruments(enabled);`,
+		`CREATE INDEX IF NOT EXISTS idx_instruments_isin ON instruments(isin);`,
+		`CREATE INDEX IF NOT EXISTS idx_instruments_sector ON instruments(sector);`,
+		`CREATE INDEX IF NOT EXISTS idx_instruments_real_exchange ON instruments(real_exchange);`,
+		`CREATE INDEX IF NOT EXISTS idx_instruments_ipo_date ON instruments(ipo_date);`,
+		`CREATE INDEX IF NOT EXISTS idx_instruments_first_1min_candle_date ON instruments(first_1min_candle_date);`,
+		`CREATE INDEX IF NOT EXISTS idx_instruments_first_1day_candle_date ON instruments(first_1day_candle_date);`,
+		`CREATE INDEX IF NOT EXISTS idx_instruments_data_source_id ON instruments(data_source_id);`,
+
+		// Индексы для dividends
 		`CREATE INDEX IF NOT EXISTS idx_dividends_figi ON dividends(figi);`,
 		`CREATE INDEX IF NOT EXISTS idx_dividends_payment_date ON dividends(payment_date);`,
 	}
@@ -156,14 +195,43 @@ func CreateIndexesAndConstraints(dbpool *pgxpool.Pool) error {
 		END $$;`,
 	}
 
-	// Выполняем создание индексов и ограничений
-	queries := make([]string, 0, len(indexes)+len(foreignKeys))
+	// Создаем представление instrument_view
+	createView := `
+		CREATE OR REPLACE VIEW instrument_view
+		AS SELECT 
+			i.ticker,
+			i.figi,
+			i.name,
+			i.instrument_type,
+			i.currency,
+			i.lot_size,
+			i.isin,
+			i.short_enabled_flag,
+			i.ipo_date,
+			i.issue_size,
+			i.sector,
+			i.real_exchange,
+			i.first_1min_candle_date,
+			i.first_1day_candle_date,
+			ds.name AS data_source_name,
+			i.enabled,
+			i.last_loaded_time,
+			i.created_at,
+			i.updated_at
+		FROM instruments i
+		LEFT JOIN data_sources ds ON i.data_source_id = ds.id;
+	`
+
+	// Выполняем создание индексов, ограничений и представления
+	queries := make([]string, 0, len(indexes)+len(foreignKeys)+newView)
 	queries = append(queries, indexes...)
 	queries = append(queries, foreignKeys...)
+	queries = append(queries, createView)
+
 	for _, query := range queries {
 		_, err := dbpool.Exec(context.Background(), query)
 		if err != nil {
-			return fmt.Errorf("ошибка создания индекса/ограничения: %w", err)
+			return fmt.Errorf("ошибка создания индекса/ограничения/представления: %w", err)
 		}
 	}
 
@@ -216,7 +284,164 @@ func MigrateDatabase(dbpool *pgxpool.Pool) error {
 		END $$;
 	`
 
-	queries := []string{addEnabledColumn, addDividendsUniqueConstraint}
+	// Создаем таблицу data_sources если её нет
+	createDataSourcesTable := `
+		CREATE TABLE IF NOT EXISTS data_sources (
+			id serial4 NOT NULL,
+			"name" varchar(50) NOT NULL,
+			description text NULL,
+			base_url varchar(200) NULL,
+			created_at timestamp DEFAULT now() NULL,
+			updated_at timestamp DEFAULT now() NULL,
+			CONSTRAINT data_sources_name_key UNIQUE (name),
+			CONSTRAINT data_sources_pkey PRIMARY KEY (id)
+		);
+	`
+
+	// Добавляем новые поля в таблицу instruments
+	addInstrumentFields := `
+		DO $$ 
+		BEGIN
+			IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'instruments') THEN
+				-- Добавляем новые поля если их нет
+				IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+					WHERE table_name = 'instruments' AND column_name = 'isin') THEN
+					ALTER TABLE instruments ADD COLUMN isin varchar(12) NULL;
+				END IF;
+				
+				IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+					WHERE table_name = 'instruments' AND column_name = 'short_enabled_flag') THEN
+					ALTER TABLE instruments ADD COLUMN short_enabled_flag boolean DEFAULT false NOT NULL;
+				END IF;
+				
+				IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+					WHERE table_name = 'instruments' AND column_name = 'ipo_date') THEN
+					ALTER TABLE instruments ADD COLUMN ipo_date date NULL;
+				END IF;
+				
+				IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+					WHERE table_name = 'instruments' AND column_name = 'issue_size') THEN
+					ALTER TABLE instruments ADD COLUMN issue_size bigint NULL;
+				END IF;
+				
+				IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+					WHERE table_name = 'instruments' AND column_name = 'sector') THEN
+					ALTER TABLE instruments ADD COLUMN sector varchar(100) NULL;
+				END IF;
+				
+				IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+					WHERE table_name = 'instruments' AND column_name = 'real_exchange') THEN
+					ALTER TABLE instruments ADD COLUMN real_exchange varchar(50) NULL;
+				END IF;
+				
+				IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+					WHERE table_name = 'instruments' AND column_name = 'first_1min_candle_date') THEN
+					ALTER TABLE instruments ADD COLUMN first_1min_candle_date timestamp NULL;
+				END IF;
+				
+				IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+					WHERE table_name = 'instruments' AND column_name = 'first_1day_candle_date') THEN
+					ALTER TABLE instruments ADD COLUMN first_1day_candle_date timestamp NULL;
+				END IF;
+				
+				IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+					WHERE table_name = 'instruments' AND column_name = 'data_source_id') THEN
+					ALTER TABLE instruments ADD COLUMN data_source_id int4 NULL;
+				END IF;
+			END IF;
+		END $$;
+	`
+
+	// Добавляем индексы для новых полей
+	addNewIndexes := `
+		DO $$ 
+		BEGIN
+			IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'instruments') THEN
+				-- Создаем индексы для новых полей если их нет
+				IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_instruments_isin') THEN
+					CREATE INDEX idx_instruments_isin ON instruments USING btree (isin);
+				END IF;
+				
+				IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_instruments_sector') THEN
+					CREATE INDEX idx_instruments_sector ON instruments USING btree (sector);
+				END IF;
+				
+				IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_instruments_real_exchange') THEN
+					CREATE INDEX idx_instruments_real_exchange ON instruments USING btree (real_exchange);
+				END IF;
+				
+				IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_instruments_ipo_date') THEN
+					CREATE INDEX idx_instruments_ipo_date ON instruments USING btree (ipo_date);
+				END IF;
+				
+				IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_instruments_first_1min_candle_date') THEN
+					CREATE INDEX idx_instruments_first_1min_candle_date ON instruments USING btree (first_1min_candle_date);
+				END IF;
+				
+				IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_instruments_first_1day_candle_date') THEN
+					CREATE INDEX idx_instruments_first_1day_candle_date ON instruments USING btree (first_1day_candle_date);
+				END IF;
+				
+				IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_instruments_data_source_id') THEN
+					CREATE INDEX idx_instruments_data_source_id ON instruments USING btree (data_source_id);
+				END IF;
+			END IF;
+		END $$;
+	`
+
+	// Добавляем внешний ключ для data_source_id
+	addDataSourceForeignKey := `
+		DO $$ 
+		BEGIN
+			IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'instruments') 
+			   AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'data_sources') THEN
+				IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints 
+					WHERE table_name = 'instruments' AND constraint_name = 'instruments_data_source_id_fkey') THEN
+					ALTER TABLE instruments ADD CONSTRAINT instruments_data_source_id_fkey 
+						FOREIGN KEY (data_source_id) REFERENCES data_sources(id);
+				END IF;
+			END IF;
+		END $$;
+	`
+
+	// Обновляем представление instrument_view
+	updateInstrumentView := `
+		DROP VIEW IF EXISTS instrument_view;
+		CREATE OR REPLACE VIEW instrument_view
+		AS SELECT 
+			i.ticker,
+			i.figi,
+			i.name,
+			i.instrument_type,
+			i.currency,
+			i.lot_size,
+			i.isin,
+			i.short_enabled_flag,
+			i.ipo_date,
+			i.issue_size,
+			i.sector,
+			i.real_exchange,
+			i.first_1min_candle_date,
+			i.first_1day_candle_date,
+			ds.name AS data_source_name,
+			i.enabled,
+			i.last_loaded_time,
+			i.created_at,
+			i.updated_at
+		FROM instruments i
+		LEFT JOIN data_sources ds ON i.data_source_id = ds.id;
+	`
+
+	queries := []string{
+		addEnabledColumn,
+		addDividendsUniqueConstraint,
+		createDataSourcesTable,
+		addInstrumentFields,
+		addNewIndexes,
+		addDataSourceForeignKey,
+		updateInstrumentView,
+	}
+
 	for _, query := range queries {
 		_, err := dbpool.Exec(context.Background(), query)
 		if err != nil {

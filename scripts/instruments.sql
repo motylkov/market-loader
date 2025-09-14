@@ -61,6 +61,23 @@
 -- WHERE ticker >= 'A' AND ticker <= 'M'
 --   AND trading_status = 'SECURITY_TRADING_STATUS_NORMAL_TRADING';
 
+-- 9. Включить инструменты по ISIN коду
+-- UPDATE instruments 
+-- SET enabled = true 
+-- WHERE isin IN ('RU0009029540', 'RU0009029541', 'RU0009029542')
+--   AND trading_status = 'SECURITY_TRADING_STATUS_NORMAL_TRADING';
+
+-- 10. Включить инструменты с возможностью шорта
+-- UPDATE instruments 
+-- SET enabled = true 
+-- WHERE short_enabled_flag = true
+--   AND trading_status = 'SECURITY_TRADING_STATUS_NORMAL_TRADING';
+
+-- 11. Включить инструменты с IPO после определенной даты
+-- UPDATE instruments 
+-- SET enabled = true 
+-- WHERE ipo_date >= '2020-01-01'
+--   AND trading_status = 'SECURITY_TRADING_STATUS_NORMAL_TRADING';
 --------------------------------------------------------------------
 
 -- Проверка текущего состояния:
@@ -92,3 +109,56 @@
 --   AND trading_status = 'SECURITY_TRADING_STATUS_NORMAL_TRADING'
 -- ORDER BY instrument_type, ticker
 -- LIMIT 100;
+
+-- Статистика по секторам:
+
+-- SELECT 
+--   sector,
+--   COUNT(*) as total_instruments,
+--   COUNT(CASE WHEN enabled = true THEN 1 END) as enabled_instruments,
+--   AVG(issue_size) as avg_issue_size
+-- FROM instruments 
+-- WHERE trading_status = 'SECURITY_TRADING_STATUS_NORMAL_TRADING'
+--   AND sector IS NOT NULL
+-- GROUP BY sector
+-- ORDER BY total_instruments DESC;
+
+-- Инструменты с возможностью шорта:
+
+-- SELECT 
+--   ticker, 
+--   name, 
+--   instrument_type, 
+--   sector,
+--   short_enabled_flag,
+--   enabled
+-- FROM instruments 
+-- WHERE short_enabled_flag = true
+--   AND trading_status = 'SECURITY_TRADING_STATUS_NORMAL_TRADING'
+-- ORDER BY instrument_type, ticker;
+
+-- Поиск инструментов по ISIN:
+
+-- SELECT 
+--   ticker, 
+--   name, 
+--   isin,
+--   instrument_type,
+--   sector,
+--   enabled
+-- FROM instruments 
+-- WHERE isin LIKE '%RU0009029540%'
+--   AND trading_status = 'SECURITY_TRADING_STATUS_NORMAL_TRADING';
+
+-- Инструменты по размеру выпуска (топ-20):
+-- SELECT 
+--   ticker, 
+--   name, 
+--   issue_size,
+--   instrument_type,
+--   enabled
+-- FROM instruments 
+-- WHERE issue_size IS NOT NULL
+--   AND trading_status = 'SECURITY_TRADING_STATUS_NORMAL_TRADING'
+-- ORDER BY issue_size DESC
+-- LIMIT 20;

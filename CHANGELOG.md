@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## [1.3.1] - 2025-09-15
+
+### Added
+- Enhanced data source mapping capabilities
+- Key fields to instruments table
+  - international security identifier
+  - sector
+  - etc
+
+### Updated
+- Instrument data structure in Go code to support new fields
+- Database Migration
+
 ## [1.3.0] - 2025-09-07
 
 ### Added

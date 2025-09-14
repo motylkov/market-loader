@@ -65,6 +65,7 @@ func LoadCandleData(
 	logFields := logrus.Fields{
 		"figi":      instrument.Figi,
 		"ticker":    instrument.Ticker,
+		"isin":      instrument.Isin,
 		"startTime": from.Format("2006-01-02"),
 		"endTime":   to.Format("2006-01-02"),
 		"apiLimit":  cfg.GetIntervalLimit(configKey),
@@ -105,6 +106,7 @@ func LoadCandleData(
 		logger.WithFields(logrus.Fields{
 			"figi":      instrument.Figi,
 			"ticker":    instrument.Ticker,
+			"isin":      instrument.Isin,
 			"chunkFrom": currentFrom.Format(dateFormat),
 			"chunkTo":   currentTo.Format(dateFormat),
 		}).Info("Загружаем чанк")
@@ -126,6 +128,7 @@ func LoadCandleData(
 			logger.WithFields(logrus.Fields{
 				"figi":      instrument.Figi,
 				"ticker":    instrument.Ticker,
+				"isin":      instrument.Isin,
 				"chunkSize": len(candles),
 				"total":     totalCandles,
 			}).Info("Чанк сохранен")
@@ -147,6 +150,7 @@ func LoadCandleData(
 	logger.WithFields(logrus.Fields{
 		"figi":         instrument.Figi,
 		"ticker":       instrument.Ticker,
+		"isin":         instrument.Isin,
 		"totalCandles": totalCandles,
 	}).Info(completionMessage)
 
