@@ -28,23 +28,49 @@ type Instrument struct {
 	MinPriceIncrement float64
 	TradingStatus     string
 	Enabled           bool
-	// Isin             string     // ISIN код инструмента
-	Isin             *string    // ISIN код инструмента
-	ShortEnabledFlag bool       // Флаг доступности для шорта
-	IpoDate          *time.Time // Дата IPO (для акций)
-	IssueSize        *int64     // Размер выпуска
-	// Sector           string     // Сектор экономики
-	Sector *string // Сектор экономики
-	// RealExchange     string     // Реальная биржа торговли
-	RealExchange *string // Реальная биржа торговли
+	Isin              string    // ISIN код инструмента
+	ShortEnabledFlag  bool      // Флаг доступности для шорта
+	IpoDate           time.Time // Дата IPO (для акций)
+	IssueSize         int64     // Размер выпуска
+	Sector            string    // Сектор экономики
+	RealExchange      string    // Реальная биржа торговли
 	// Даты первых свечей для оптимизации загрузки
-	First1MinCandleDate *time.Time // Дата первой 1-минутной свечи
-	First1DayCandleDate *time.Time // Дата первой дневной свечи
+	First1MinCandleDate time.Time // Дата первой 1-минутной свечи
+	First1DayCandleDate time.Time // Дата первой дневной свечи
 	// Метаданные
-	DataSourceID   *int32 // ID источника данных
+	DataSourceID   int32 // ID источника данных
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
-	LastLoadedTime *time.Time
+	LastLoadedTime time.Time
+
+	ForQualInvestorFlag bool
+
+	// Новые поля из AssetResponse
+	AssetUID         string // Уникальный идентификатор актива
+	AssetType        string // Тип актива
+	AssetDescription string // Описание актива
+	//	AssetCountryOfRisk string // Страна риска - нет
+	//	AssetSector        string // Сектор (более детальный) - нет
+
+	// Новые поля из AssetSecurity
+	SecurityType          string  // Тип ценной бумаги
+	InstrumentKind        string  // Тип инструмента
+	FaceValue             float64 // Номинальная стоимость
+	FaceUnit              string  // Валюта номинала
+	IssueDate             string  // Дата начала торгов
+	ListingLevel          int     // Уровень листинга
+	RegistrarName         string  // Наименование регистратора
+	CouponQuantityPerYear int     // Количество купонов в год
+
+	// Для акций
+	ShareType     string // Тип акции (обыкновенная, привилегированная)
+	DivYieldFlag  bool   // Флаг дивидендной доходности
+	IssueSizePlan int64  // Плановый объем выпуска
+
+	// Для облигаций
+	StateRegDate   string  // Дата гос. регистрации
+	PlacementDate  string  // Дата размещения
+	PlacementPrice float64 // Цена размещения
 }
 
 // SaveInstrument сохраняет информацию об инструменте
@@ -96,12 +122,15 @@ func getInstrumentsInternal(ctx context.Context, dbpool *pgxpool.Pool, instrumen
 	var query string
 	var args []interface{}
 
-	baseQuery := `SELECT figi, ticker, name, instrument_type, currency, lot_size, min_price_increment, 
-				trading_status, enabled, isin, short_enabled_flag, ipo_date, issue_size, 
-				sector, real_exchange, first_1min_candle_date, first_1day_candle_date, 
-				data_source_id, created_at, updated_at, last_loaded_time
+	baseQuery := `SELECT figi, ticker, name, instrument_type, data_source_id
 				FROM instruments 
 				WHERE trading_status = 'SECURITY_TRADING_STATUS_NORMAL_TRADING'`
+	// baseQuery := `SELECT figi, ticker, name, instrument_type, currency, lot_size, min_price_increment,
+	// 			trading_status, enabled, isin, short_enabled_flag, ipo_date, issue_size,
+	// 			sector, real_exchange, first_1min_candle_date, first_1day_candle_date,
+	// 			data_source_id, created_at, updated_at, last_loaded_time
+	// 			FROM instruments
+	// 			WHERE trading_status = 'SECURITY_TRADING_STATUS_NORMAL_TRADING'`
 
 	if enabledOnly {
 		baseQuery += ` AND enabled = true`
@@ -132,23 +161,23 @@ func getInstrumentsInternal(ctx context.Context, dbpool *pgxpool.Pool, instrumen
 			&instrument.Ticker,
 			&instrument.Name,
 			&instrument.InstrumentType,
-			&instrument.Currency,
-			&instrument.LotSize,
-			&instrument.MinPriceIncrement,
-			&instrument.TradingStatus,
-			&instrument.Enabled,
-			&instrument.Isin,
-			&instrument.ShortEnabledFlag,
-			&instrument.IpoDate,
-			&instrument.IssueSize,
-			&instrument.Sector,
-			&instrument.RealExchange,
-			&instrument.First1MinCandleDate,
-			&instrument.First1DayCandleDate,
+			// &instrument.Currency,
+			// &instrument.LotSize,
+			// &instrument.MinPriceIncrement,
+			// &instrument.TradingStatus,
+			// &instrument.Enabled,
+			// &instrument.Isin,
+			// &instrument.ShortEnabledFlag,
+			// &instrument.IpoDate,
+			// &instrument.IssueSize,
+			// &instrument.Sector,
+			// &instrument.RealExchange,
+			// &instrument.First1MinCandleDate,
+			// &instrument.First1DayCandleDate,
 			&instrument.DataSourceID,
-			&instrument.CreatedAt,
-			&instrument.UpdatedAt,
-			&instrument.LastLoadedTime,
+			// &instrument.CreatedAt,
+			// &instrument.UpdatedAt,
+			// &instrument.LastLoadedTime,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("ошибка сканирования инструмента: %w", err)

@@ -13,53 +13,129 @@ import (
 	"fmt"
 	"time"
 
+	"market-loader/internal/money"
+	"market-loader/internal/storage"
+	"market-loader/pkg/config"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/russianinvestments/invest-api-go-sdk/investgo"
 	pb "github.com/russianinvestments/invest-api-go-sdk/proto"
 	"github.com/sirupsen/logrus"
-	"google.golang.org/protobuf/types/known/timestamppb"
-
-	"market-loader/internal/money"
-	"market-loader/internal/storage"
-	"market-loader/pkg/config"
 )
 
 // CreateInstrumentFromProto создает структуру Instrument из protobuf данных
 func CreateInstrumentFromProto(
-	figi, ticker, name, instrumentType, currency string,
-	lotSize int32, minPriceIncrement *pb.Quotation,
-	tradingStatus pb.SecurityTradingStatus,
-	isin *string,
-	shortEnabledFlag bool,
-	ipoDate *time.Time,
-	issueSize *int64,
-	sector, realExchange *string,
-	first1MinCandleDate, first1DayCandleDate *time.Time,
-	dataSourceID *int32,
-) storage.Instrument {
+	protoInstrument interface{},
+	dataSourceID int32,
+) (*storage.Instrument, error) {
 	now := time.Now()
-	return storage.Instrument{
-		Figi:                figi,
-		Ticker:              ticker,
-		Name:                name,
-		InstrumentType:      instrumentType,
-		Currency:            currency,
-		LotSize:             lotSize,
-		MinPriceIncrement:   money.ConvertMinPriceIncrement(minPriceIncrement),
-		TradingStatus:       tradingStatus.String(),
-		Enabled:             false,
-		Isin:                isin,
-		ShortEnabledFlag:    shortEnabledFlag,
-		IpoDate:             ipoDate,
-		IssueSize:           issueSize,
-		Sector:              sector,
-		RealExchange:        realExchange,
-		First1MinCandleDate: first1MinCandleDate,
-		First1DayCandleDate: first1DayCandleDate,
-		DataSourceID:        dataSourceID,
-		CreatedAt:           now,
-		UpdatedAt:           now,
+	var inst storage.Instrument
+
+	// Устанавливаем базовые метаданные
+	inst.CreatedAt = now
+	inst.UpdatedAt = now
+	inst.DataSourceID = dataSourceID
+
+	switch v := protoInstrument.(type) {
+	case *pb.Share:
+		inst.Figi = orEmpty(&v.Figi)
+		inst.Ticker = orEmpty(&v.Ticker)
+		inst.Name = escapeTabs(v.GetName())
+		inst.InstrumentType = "share"
+		inst.Currency = orEmpty(&v.Currency)
+		inst.LotSize = v.Lot
+		inst.MinPriceIncrement = money.ConvertQuotationToFloat(v.MinPriceIncrement)
+		inst.TradingStatus = tradingStatusToString(v.TradingStatus)
+		inst.Enabled = v.ApiTradeAvailableFlag
+		inst.ShortEnabledFlag = v.ShortEnabledFlag
+		inst.Isin = orEmpty(&v.Isin)
+		if ts := v.IpoDate; ts != nil {
+			t := ts.AsTime()
+			inst.IpoDate = t
+		}
+		if v.IssueSize > 0 {
+			inst.IssueSize = v.IssueSize
+		}
+		inst.RealExchange = v.RealExchange.String()
+		if v.ForQualInvestorFlag {
+			flag := true
+			inst.ForQualInvestorFlag = flag
+
+		}
+
+		// Специфичные поля акций
+		shareType := shareTypeToString(v.ShareType)
+		if shareType != "" {
+			inst.ShareType = shareType
+		}
+
+		if v.DivYieldFlag {
+			if v.DivYieldFlag {
+				flag := true
+				inst.DivYieldFlag = flag
+			}
+		}
+		if v.IssueSizePlan > 0 {
+			plan := v.IssueSizePlan
+			inst.IssueSizePlan = plan
+		}
+
+	case *pb.Bond:
+		inst.Figi = orEmpty(&v.Figi)
+		inst.Ticker = orEmpty(&v.Ticker)
+		inst.Name = escapeTabs(v.GetName())
+		inst.InstrumentType = "bond"
+		inst.Currency = orEmpty(&v.Currency)
+		inst.LotSize = v.Lot
+		inst.MinPriceIncrement = money.ConvertQuotationToFloat(v.MinPriceIncrement)
+		inst.TradingStatus = tradingStatusToString(v.TradingStatus)
+		inst.Enabled = v.ApiTradeAvailableFlag
+		inst.ShortEnabledFlag = v.ShortEnabledFlag
+		inst.Isin = orEmpty(&v.Isin)
+		if v.IssueSize > 0 {
+			inst.IssueSize = v.IssueSize
+		}
+		inst.RealExchange = v.RealExchange.String()
+		if v.ForQualInvestorFlag {
+			flag := true
+			inst.ForQualInvestorFlag = flag
+
+		}
+
+		// Поля облигаций
+		if ts := v.StateRegDate; ts != nil {
+			s := ts.AsTime().Format("2006-01-02")
+			inst.StateRegDate = s
+		}
+		if ts := v.PlacementDate; ts != nil {
+			s := ts.AsTime().Format("2006-01-02")
+			inst.PlacementDate = s
+		}
+		inst.PlacementPrice = money.ConvertMoneyValueToFloat(v.PlacementPrice)
+
+	case *pb.Etf:
+		inst.Figi = orEmpty(&v.Figi)
+		inst.Ticker = orEmpty(&v.Ticker)
+		inst.Name = escapeTabs(v.GetName())
+		inst.InstrumentType = "etf"
+		inst.Currency = orEmpty(&v.Currency)
+		inst.LotSize = v.Lot
+		inst.MinPriceIncrement = money.ConvertQuotationToFloat(v.MinPriceIncrement)
+		inst.TradingStatus = tradingStatusToString(v.TradingStatus)
+		inst.Enabled = v.ApiTradeAvailableFlag
+		inst.ShortEnabledFlag = v.ShortEnabledFlag
+		inst.Isin = orEmpty(&v.Isin)
+		inst.RealExchange = v.RealExchange.String()
+		if v.ForQualInvestorFlag {
+			flag := true
+			inst.ForQualInvestorFlag = flag
+
+		}
+	default:
+		return nil, fmt.Errorf("unknown instrument type: %T", protoInstrument)
 	}
+
+	return &inst, nil
 }
 
 // processInstruments обрабатывает и сохраняет инструменты
@@ -73,6 +149,7 @@ func processInstruments[T interface {
 	GetTradingStatus() pb.SecurityTradingStatus
 }](
 	ctx context.Context,
+	client *investgo.Client,
 	instruments []T,
 	instrumentType string,
 	dataSourceID *int32,
@@ -83,103 +160,19 @@ func processInstruments[T interface {
 
 	for _, protoInstrument := range instruments {
 		if config.IsNormalTrading(protoInstrument.GetTradingStatus()) {
-			var (
-				// isin                string
-				isin             *string
-				shortEnabledFlag bool
-				ipoDate          *time.Time
-				issueSize        int64 = 0
-				// sector              string
-				sector *string
-				// realExchange        string
-				realExchange        *string
-				first1MinCandleDate *time.Time
-				first1DayCandleDate *time.Time
-			)
 
-			// Извлечение общих полей из инструментов
-			extractCommonFields := func(v interface{}) {
-				setIfNotNil := func(dst **string, getFn func() string) {
-					if val := getFn(); val != "" {
-						*dst = &val
-					}
-				}
-
-				// Общие строки
-				setIfNotNil(&isin, v.(interface{ GetIsin() string }).GetIsin)
-				shortEnabledFlag = v.(interface{ GetShortEnabledFlag() bool }).GetShortEnabledFlag()
-				setIfNotNil(&sector, v.(interface{ GetSector() string }).GetSector)
-
-				// RealExchange — enum -> string
-				if reGetter, ok := v.(interface{ GetRealExchange() string }); ok {
-					if re := reGetter.GetRealExchange(); re != "" {
-						realExchange = &re
-					}
-				}
-
-				// Первые свечи
-				if tsGetter, ok := v.(interface{ GetFirst_1MinCandleDate() *timestamppb.Timestamp }); ok {
-					if ts := tsGetter.GetFirst_1MinCandleDate(); ts != nil {
-						t := ts.AsTime()
-						first1MinCandleDate = &t
-					}
-				}
-				if tsGetter, ok := v.(interface{ GetFirst_1DayCandleDate() *timestamppb.Timestamp }); ok {
-					if ts := tsGetter.GetFirst_1DayCandleDate(); ts != nil {
-						t := ts.AsTime()
-						first1DayCandleDate = &t
-					}
-				}
-			}
-
-			// Обработка по типам
-			switch v := any(protoInstrument).(type) {
-			case *pb.Share:
-				extractCommonFields(v)
-				// Специфичные поля
-				issueSize = v.GetIssueSize()
-				if ts := v.GetIpoDate(); ts != nil {
-					t := ts.AsTime()
-					ipoDate = &t
-				}
-			case *pb.Bond:
-				extractCommonFields(v)
-				issueSize = v.GetIssueSize()
-				// IPO не устанавливаем
-			case *pb.Etf:
-				extractCommonFields(v)
-				// Ни issue_size, ни IPO не устанавливаем
-			default:
+			// Создаём инструмент с расширенными данными
+			instrument, err := CreateInstrumentFromProto(protoInstrument, *dataSourceID)
+			if err != nil {
 				logger.WithFields(logrus.Fields{
 					"figi":   protoInstrument.GetFigi(),
 					"ticker": protoInstrument.GetTicker(),
-					"type":   fmt.Sprintf("%T", protoInstrument),
-				}).Warn("Неизвестный тип инструмента, пропуск")
-				continue
+					"type":   instrumentType,
+					"error":  err,
+				}).Error("Ошибка создания инструмента")
 			}
 
-			// Создаём инструмент с расширенными данными
-			instrument := CreateInstrumentFromProto(
-				protoInstrument.GetFigi(),
-				protoInstrument.GetTicker(),
-				protoInstrument.GetName(),
-				instrumentType,
-				protoInstrument.GetCurrency(),
-				protoInstrument.GetLot(),
-				protoInstrument.GetMinPriceIncrement(),
-				protoInstrument.GetTradingStatus(),
-				isin,
-				shortEnabledFlag,
-				ipoDate,
-				&issueSize,
-				sector,
-				realExchange,
-				first1MinCandleDate,
-				first1DayCandleDate,
-				dataSourceID,
-			)
-
-			if err := storage.SaveInstrument(ctx, dbpool, instrument); err != nil {
+			if err := storage.SaveInstrument(ctx, dbpool, *instrument); err != nil {
 				logger.WithFields(logrus.Fields{
 					"figi":   protoInstrument.GetFigi(),
 					"ticker": protoInstrument.GetTicker(),
@@ -217,19 +210,19 @@ func LoadInstrumentsByType(
 		if err != nil {
 			return fmt.Errorf("ошибка загрузки акций: %w", err)
 		}
-		return processInstruments(ctx, response.Instruments, instrumentType, dataSourceID, dbpool, logger)
+		return processInstruments(ctx, client, response.Instruments, instrumentType, dataSourceID, dbpool, logger)
 	case "bond":
 		response, err := instrumentsClient.Bonds(pb.InstrumentStatus_INSTRUMENT_STATUS_ALL)
 		if err != nil {
 			return fmt.Errorf("ошибка загрузки облигаций: %w", err)
 		}
-		return processInstruments(ctx, response.Instruments, instrumentType, dataSourceID, dbpool, logger)
+		return processInstruments(ctx, client, response.Instruments, instrumentType, dataSourceID, dbpool, logger)
 	case "etf":
 		response, err := instrumentsClient.Etfs(pb.InstrumentStatus_INSTRUMENT_STATUS_ALL)
 		if err != nil {
 			return fmt.Errorf("ошибка загрузки ETF: %w", err)
 		}
-		return processInstruments(ctx, response.Instruments, instrumentType, dataSourceID, dbpool, logger)
+		return processInstruments(ctx, client, response.Instruments, instrumentType, dataSourceID, dbpool, logger)
 	default:
 		return fmt.Errorf("неподдерживаемый тип инструмента: %s", instrumentType)
 	}

@@ -40,3 +40,17 @@ func ConvertMoneyValue(units int64, nano int32) string {
 func ConvertMinPriceIncrement(quotation *pb.Quotation) float64 {
 	return float64(quotation.Units) + float64(quotation.Nano)/1e9
 }
+
+func ConvertQuotationToFloat(q *pb.Quotation) float64 {
+	if q == nil {
+		return 0
+	}
+	return float64(q.Units) + float64(q.Nano)/1e9
+}
+
+func ConvertMoneyValueToFloat(m *pb.MoneyValue) float64 {
+	if m == nil {
+		return 0.0
+	}
+	return float64(m.Units) + float64(m.Nano)/1e9
+}
