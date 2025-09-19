@@ -124,7 +124,7 @@ func getInstrumentsInternal(ctx context.Context, dbpool *pgxpool.Pool, instrumen
 
 	baseQuery := `SELECT figi, ticker, name, instrument_type, data_source_id
 				FROM instruments 
-				WHERE trading_status = 'SECURITY_TRADING_STATUS_NORMAL_TRADING'`
+				WHERE trading_status = 'normal_trading'`
 	// baseQuery := `SELECT figi, ticker, name, instrument_type, currency, lot_size, min_price_increment,
 	// 			trading_status, enabled, isin, short_enabled_flag, ipo_date, issue_size,
 	// 			sector, real_exchange, first_1min_candle_date, first_1day_candle_date,
