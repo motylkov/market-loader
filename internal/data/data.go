@@ -118,6 +118,12 @@ func LoadCandleData(
 				currentFrom.Format("2006-01-02"), currentTo.Format("2006-01-02"), err)
 		}
 
+		// Проверяем лимиты API
+		if cfg.Loading.RateLimitPause > 0 {
+			logger.Infof("Пауза %d секунд для соблюдения лимитов API...", cfg.Loading.RateLimitPause)
+			time.Sleep(time.Duration(cfg.Loading.RateLimitPause) * time.Second)
+		}
+
 		// Сохраняем чанк в БД
 		if len(candles) > 0 {
 			if err := storage.SaveCandles(dbpool, instrument.Figi, candles, intervalType, logger); err != nil {
