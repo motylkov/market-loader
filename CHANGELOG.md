@@ -4,12 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning.
 
-## [1.3.2] - 2025-09-17
+## [1.3.2] - 2025-09-21
 ### Updated
 - Shortened fields readable from the database for updating instruments
+- Date selection for archive upload
 
 ### Fixed
 - **Critical bug**: filling in isin and other fields
+- **Critical bug**: an issue with partition creation 
 
 ## [1.3.1] - 2025-09-15
 

@@ -100,8 +100,14 @@ func main() {
 	for _, instrument := range instance.Instruments {
 		logger.Infof("Загрузка данных для %s (%s)", instrument.Ticker, instrument.Figi)
 
+		start := startYear
+		if instrument.IpoDate.Year() > startYear {
+			start = instrument.IpoDate.Year()
+			logger.Debugf("Инструмент %s (%s) был создан после %d года, меняем дату", instrument.Ticker, instrument.Figi, instrument.IpoDate.Year())
+		}
+
 		instrumentCandles := 0
-		for year := startYear; year <= currentYear; year++ {
+		for year := start; year <= currentYear; year++ {
 			// Создаем партиции для года заранее
 			logger.Infof("Создание партиций для %d года...", year)
 			if err := storage.CreateYearPartitions(instance.DBPool, year); err != nil {
