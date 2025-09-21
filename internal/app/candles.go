@@ -73,7 +73,7 @@ func ProcessInstrument(
 	cfg *config.Config,
 	logger *logrus.Logger,
 ) error {
-	// Проверяем статус загрузки
+	// Проверяем статус загрузки по реально загруженным данным
 	lastLoadedTime, err := storage.GetLastLoadedTime(ctx, dbpool, instrument.Figi, interval)
 	if err != nil {
 		return fmt.Errorf("ошибка получения времени последней загрузки: %w", err)

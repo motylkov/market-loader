@@ -122,7 +122,7 @@ func getInstrumentsInternal(ctx context.Context, dbpool *pgxpool.Pool, instrumen
 	var query string
 	var args []interface{}
 
-	baseQuery := `SELECT figi, ticker, name, instrument_type, data_source_id
+	baseQuery := `SELECT figi, ticker, name, instrument_type, data_source_id, last_loaded_time, ipo_date
 				FROM instruments 
 				WHERE trading_status = 'normal_trading'`
 	// baseQuery := `SELECT figi, ticker, name, instrument_type, currency, lot_size, min_price_increment,
@@ -177,7 +177,8 @@ func getInstrumentsInternal(ctx context.Context, dbpool *pgxpool.Pool, instrumen
 			&instrument.DataSourceID,
 			// &instrument.CreatedAt,
 			// &instrument.UpdatedAt,
-			// &instrument.LastLoadedTime,
+			&instrument.LastLoadedTime,
+			&instrument.IpoDate,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("ошибка сканирования инструмента: %w", err)

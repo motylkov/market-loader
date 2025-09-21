@@ -32,31 +32,36 @@ func LoadCandleData(
 	cfg *config.Config,
 	logger *logrus.Logger,
 ) error {
-	// Проверяем, нужно ли обновлять данные
-	if !lastLoadedTime.IsZero() && !config.ShouldUpdateData(lastLoadedTime, intervalType) {
-		logger.WithFields(logrus.Fields{
-			"figi":   instrument.Figi,
-			"ticker": instrument.Ticker,
-		}).Debug("Данные актуальны, пропускаем")
-		return nil
+	var from time.Time
+
+	// Определяем период загрузки
+	if !lastLoadedTime.IsZero() {
+		// Существующий инструмент - ставим время с последней свечи
+		from = lastLoadedTime
+
+		// Проверяем, нужно ли обновлять данные
+		if !config.ShouldUpdateData(lastLoadedTime, intervalType) {
+			logger.WithFields(logrus.Fields{
+				"figi":   instrument.Figi,
+				"ticker": instrument.Ticker,
+			}).Debug("Данные актуальны, пропускаем")
+			return nil
+		}
+	} else {
+		// Новый инструмент - загружаем полную историю
+		from = cfg.GetStartDate()
+		// Корректируем дату по IPO (чтобы не запрашивать данные которых нет)
+		if instrument.IpoDate.After(from) {
+			from = instrument.IpoDate
+		}
 	}
+	to := time.Now()
 
 	// Определяем единицу времени и ключ конфигурации по типу интервала
 	timeUnit, configKey := config.GetTimeUnitAndConfigKey(intervalType)
 
 	// Рассчитываем размер чанка
 	chunkSize := time.Duration(cfg.GetIntervalLimit(configKey)) * timeUnit
-
-	// Определяем период загрузки
-	var from time.Time
-	if lastLoadedTime.IsZero() {
-		// Новый инструмент - загружаем полную историю
-		from = cfg.GetStartDate()
-	} else {
-		// Существующий инструмент - обновляем с последней свечи
-		from = lastLoadedTime
-	}
-	to := time.Now()
 
 	// Определяем формат даты для логирования
 	dateFormat := config.GetDateFormat(intervalType)
