@@ -100,10 +100,11 @@ func SaveCandles(dbpool *pgxpool.Pool, figi string, candles []*pb.HistoricCandle
 		return nil
 	}
 
-	const batchSize = 1000 // Размер батча
+	//	const batchSize = 1000 // Размер батча
 
 	// Логируем начало сохранения
-	logger.Debugf("Начинаем сохранение %d свечей батчами", len(candles))
+	// logger.Debugf("Начинаем сохранение %d свечей батчами", len(candles))
+	logger.Debugf("Начинаем сохранение %d свечей", len(candles))
 
 	// Подготавливаем запрос
 	query := `
@@ -118,111 +119,115 @@ func SaveCandles(dbpool *pgxpool.Pool, figi string, candles []*pb.HistoricCandle
 	`
 
 	// Обрабатываем свечи батчами
-	totalBatches := (len(candles) + batchSize - 1) / batchSize
-	for i := 0; i < len(candles); i += batchSize {
-		end := i + batchSize
-		if end > len(candles) {
-			end = len(candles)
-		}
-
-		batch := candles[i:end]
-		batchNum := (i / batchSize) + 1
-
-		logger.Debugf("Обрабатываем батч %d/%d (%d свечей)...", batchNum, totalBatches, len(batch))
+	//	totalBatches := (len(candles) + batchSize - 1) / batchSize
+	//	for i := 0; i < len(candles); i += batchSize {
+	for _, candle := range candles {
+		//		end := i + batchSize
+		//		if end > len(candles) {
+		//			end = len(candles)
+		//		}
+		//
+		//		batch := candles[i:end]
+		//		batchNum := (i / batchSize) + 1
+		//
+		//		logger.Debugf("Обрабатываем батч %d/%d (%d свечей)...", batchNum, totalBatches, len(batch))
 
 		// Начинаем транзакцию для батча
-		tx, err := dbpool.Begin(context.Background())
-		if err != nil {
-			return fmt.Errorf("ошибка начала транзакции для батча %d-%d: %w", i, end, err)
-		}
+		//		tx, err := dbpool.Begin(context.Background())
+		//		if err != nil {
+		//			return fmt.Errorf("ошибка начала транзакции для батча %d-%d: %w", i, end, err)
+		//		}
 
 		// Выполняем вставку батча
-		for _, candle := range batch {
-			_, err := tx.Exec(context.Background(), query,
-				figi,
-				candle.GetTime().AsTime(),
-				money.ConvertMoneyValue(candle.GetOpen().GetUnits(), candle.GetOpen().GetNano()),
-				money.ConvertMoneyValue(candle.GetHigh().GetUnits(), candle.GetHigh().GetNano()),
-				money.ConvertMoneyValue(candle.GetLow().GetUnits(), candle.GetLow().GetNano()),
-				money.ConvertMoneyValue(candle.GetClose().GetUnits(), candle.GetClose().GetNano()),
-				candle.GetVolume(),
-				intervalType,
-			)
+		//		for _, candle := range batch {
+		//_, err := tx.Exec(context.Background(), query,
+		_, err := dbpool.Exec(context.Background(), query,
+			figi,
+			candle.GetTime().AsTime(),
+			money.ConvertMoneyValue(candle.GetOpen().GetUnits(), candle.GetOpen().GetNano()),
+			money.ConvertMoneyValue(candle.GetHigh().GetUnits(), candle.GetHigh().GetNano()),
+			money.ConvertMoneyValue(candle.GetLow().GetUnits(), candle.GetLow().GetNano()),
+			money.ConvertMoneyValue(candle.GetClose().GetUnits(), candle.GetClose().GetNano()),
+			candle.GetVolume(),
+			intervalType,
+		)
 
-			if err != nil {
-				// Проверяем, является ли ошибка связанной с отсутствием партиции
-				var pgErr *pgconn.PgError
-				if errors.As(err, &pgErr) {
-					// Проверяем код ошибки
-					switch {
-					case pgErr.Code == "23514":
-						logger.Debugf("Обнаружена ошибка отсутствия партиции (код 23514) для времени %s", candle.GetTime().AsTime().Format("2006-01-02"))
-					case strings.Contains(pgErr.Message, "no partition of relation"):
-						logger.Debugf("Обнаружена ошибка отсутствия партиции (английское сообщение) для времени %s", candle.GetTime().AsTime().Format("2006-01-02"))
-					case strings.Contains(pgErr.Message, "для строки не найдена секция"):
-						logger.Debugf("Обнаружена ошибка отсутствия партиции (русское сообщение) для времени %s", candle.GetTime().AsTime().Format("2006-01-02"))
-					case strings.Contains(pgErr.Message, "partition"):
-						logger.Debugf("Обнаружена ошибка партиции (общее сообщение) для времени %s", candle.GetTime().AsTime().Format("2006-01-02"))
-					default:
-						// Это не ошибка партиции - откатываем транзакцию и возвращаем ошибку
-						if rollbackErr := tx.Rollback(context.Background()); rollbackErr != nil {
-							logger.Errorf("Ошибка отката транзакции: %v", rollbackErr)
-						}
-						return fmt.Errorf("ошибка вставки свечи: %w", err)
-					}
-
-					// Если это ошибка партиции - обрабатываем её
-					logger.Debugf("Создаем партицию для времени %s...", candle.GetTime().AsTime().Format("2006-01-02"))
-
-					// Подтверждаем текущую транзакцию перед созданием партиции
-					if commitErr := tx.Commit(context.Background()); commitErr != nil {
-						return fmt.Errorf("ошибка подтверждения транзакции перед созданием партиции: %w", commitErr)
-					}
-
-					// Создаем партицию
-					if createErr := CreatePartition(dbpool, candle.GetTime().AsTime()); createErr != nil {
-						return fmt.Errorf("ошибка создания партиции: %w", createErr)
-					}
-
-					// Начинаем новую транзакцию для повторной вставки
-					tx, err = dbpool.Begin(context.Background())
-					if err != nil {
-						return fmt.Errorf("ошибка начала новой транзакции после создания партиции: %w", err)
-					}
-
-					// Повторяем вставку этой свечи
-					_, retryErr := tx.Exec(context.Background(), query,
-						figi,
-						candle.GetTime().AsTime(),
-						money.ConvertMoneyValue(candle.GetOpen().GetUnits(), candle.GetOpen().GetNano()),
-						money.ConvertMoneyValue(candle.GetHigh().GetUnits(), candle.GetHigh().GetNano()),
-						money.ConvertMoneyValue(candle.GetLow().GetUnits(), candle.GetLow().GetNano()),
-						money.ConvertMoneyValue(candle.GetClose().GetUnits(), candle.GetClose().GetNano()),
-						candle.GetVolume(),
-						intervalType,
-					)
-					if retryErr != nil {
-						if rollbackErr := tx.Rollback(context.Background()); rollbackErr != nil {
-							logger.Errorf("Ошибка отката транзакции после создания партиции: %v", rollbackErr)
-						}
-						return fmt.Errorf("ошибка вставки свечи после создания партиции: %w", retryErr)
-					}
-
-					continue
+		if err != nil {
+			// Проверяем, является ли ошибка связанной с отсутствием партиции
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) {
+				// Проверяем код ошибки
+				switch {
+				case pgErr.Code == "23514":
+					logger.Debugf("Обнаружена ошибка отсутствия партиции (код 23514) для времени %s", candle.GetTime().AsTime().Format("2006-01-02"))
+				case strings.Contains(pgErr.Message, "no partition of relation"):
+					logger.Debugf("Обнаружена ошибка отсутствия партиции (английское сообщение) для времени %s", candle.GetTime().AsTime().Format("2006-01-02"))
+				case strings.Contains(pgErr.Message, "для строки не найдена секция"):
+					logger.Debugf("Обнаружена ошибка отсутствия партиции (русское сообщение) для времени %s", candle.GetTime().AsTime().Format("2006-01-02"))
+				case strings.Contains(pgErr.Message, "partition"):
+					logger.Debugf("Обнаружена ошибка партиции (общее сообщение) для времени %s", candle.GetTime().AsTime().Format("2006-01-02"))
+				default:
+					// Это не ошибка партиции - откатываем транзакцию и возвращаем ошибку
+					//		if rollbackErr := tx.Rollback(context.Background()); rollbackErr != nil {
+					//					logger.Errorf("Ошибка отката транзакции: %v", rollbackErr)
+					//				}
+					return fmt.Errorf("ошибка вставки свечи: %w", err)
 				}
 
-				// Если это не PostgreSQL ошибка - откатываем транзакцию и возвращаем ошибку
-				if rollbackErr := tx.Rollback(context.Background()); rollbackErr != nil {
-					logger.Errorf("Ошибка отката транзакции: %v", rollbackErr)
+				// Если это ошибка партиции - обрабатываем её
+				logger.Debugf("Создаем партицию для времени %s...", candle.GetTime().AsTime().Format("2006-01-02"))
+
+				// Подтверждаем текущую транзакцию перед созданием партиции
+				//			if commitErr := tx.Commit(context.Background()); commitErr != nil {
+				//
+				//				return fmt.Errorf("ошибка подтверждения транзакции перед созданием партиции: %w", commitErr)
+				//			}
+
+				// Создаем партицию
+				if createErr := CreatePartition(dbpool, candle.GetTime().AsTime()); createErr != nil {
+					return fmt.Errorf("ошибка создания партиции: %w", createErr)
 				}
-				return fmt.Errorf("ошибка вставки свечи: %w", err)
+
+				// Начинаем новую транзакцию для повторной вставки
+				//			tx, err = dbpool.Begin(context.Background())
+				//			if err != nil {
+				//				return fmt.Errorf("ошибка начала новой транзакции после создания партиции: %w", err)
+				//			}
+
+				// Повторяем вставку этой свечи
+				//		_, retryErr := tx.Exec(context.Background(), query,
+				_, retryErr := dbpool.Exec(context.Background(), query,
+					figi,
+					candle.GetTime().AsTime(),
+					money.ConvertMoneyValue(candle.GetOpen().GetUnits(), candle.GetOpen().GetNano()),
+					money.ConvertMoneyValue(candle.GetHigh().GetUnits(), candle.GetHigh().GetNano()),
+					money.ConvertMoneyValue(candle.GetLow().GetUnits(), candle.GetLow().GetNano()),
+					money.ConvertMoneyValue(candle.GetClose().GetUnits(), candle.GetClose().GetNano()),
+					candle.GetVolume(),
+					intervalType,
+				)
+				if retryErr != nil {
+					//			if rollbackErr := tx.Rollback(context.Background()); rollbackErr != nil {
+					//				logger.Errorf("Ошибка отката транзакции после создания партиции: %v", rollbackErr)
+					//			}
+					return fmt.Errorf("ошибка вставки свечи после создания партиции: %w", retryErr)
+				}
+
+				continue
 			}
+
+			// Если это не PostgreSQL ошибка - откатываем транзакцию и возвращаем ошибку
+			//		if rollbackErr := tx.Rollback(context.Background()); rollbackErr != nil {
+			//			logger.Errorf("Ошибка отката транзакции: %v", rollbackErr)
+			//		}
+			return fmt.Errorf("ошибка вставки свечи: %w", err)
 		}
+		//		}
 
 		// Подтверждаем транзакцию батча
-		if err := tx.Commit(context.Background()); err != nil {
-			return fmt.Errorf("ошибка подтверждения транзакции для батча %d-%d: %w", i, end, err)
-		}
+		//	if err := tx.Commit(context.Background()); err != nil {
+		//		return fmt.Errorf("ошибка подтверждения транзакции для батча %d-%d: %w", i, end, err)
+		//	}
 	}
 
 	return nil

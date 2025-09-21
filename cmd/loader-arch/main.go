@@ -48,12 +48,13 @@ func main() {
 	startDate := cfg.GetStartDate()
 	var startYear int
 	if cfg.Loading.StartDate != "" {
-		startYear = startDate.Year() - config.DefaultYearsBack // По умолчанию 5 лет назад
+		startYear = startDate.Year()
+		logger.WithField("startYear", startYear).Debug("Год начала загрузки данных")
 	} else {
-		logger.Debugf("Ошибка обработки даты начала загрузки: %v", err)
 		startYear = time.Now().Year() - config.DefaultYearsBack // По умолчанию 5 лет назад
-		logger.WithField("startYear", startYear).Debug("Используем год по умолчанию (now - 5)")
+		logger.WithField("startYear", startYear).Debug("Используем год начала загрузки данных по умолчанию (now - 5)")
 	}
+
 	currentYear := time.Now().Year()
 	logger.Infof("Загрузка данных с %d по %d год (всего %d лет)", startYear, currentYear, currentYear-startYear+1)
 
